@@ -1,0 +1,78 @@
+/**
+ * English (en) translations for Dokan Tools Pro.
+ * Mirrors the structure of ./bn.js — see ./index.js for the t() translator.
+ */
+export default {
+  app: {
+    title: 'Dokan Tools Pro',
+    subtitle: 'AI-powered ID card and passport photo maker',
+    loading: 'Loading...',
+    ready: 'Ready',
+  },
+  module: {
+    cardSheet: 'ID Card Sheet Generator',
+    passportPhoto: 'Passport Photo Maker',
+    selectModule: 'What would you like to create?',
+  },
+  upload: {
+    chooseFile: 'Choose an image',
+    dropHere: 'Drop your image here',
+    or: 'or',
+    fromCamera: 'From camera',
+    fromGallery: 'From gallery',
+    multipleAllowed: 'You can select multiple images',
+  },
+  button: {
+    upload: 'Upload',
+    process: 'Process',
+    download: 'Download',
+    retry: 'Try again',
+    cancel: 'Cancel',
+    confirm: 'Confirm',
+    next: 'Next',
+    back: 'Back',
+    reset: 'Start over',
+  },
+  process: {
+    analyzing: 'Analyzing image...',
+    detectingCards: 'Detecting cards...',
+    detectingFace: 'Detecting face...',
+    removingBackground: 'Removing background...',
+    cropping: 'Cropping...',
+    arrangingLayout: 'Arranging layout...',
+    generatingPDF: 'Generating PDF...',
+    complete: 'Done!',
+  },
+  preview: {
+    detectedCount: 'Cards detected',
+    copyCount: 'Number of copies',
+    cardsPerSheet: 'Cards per A4 sheet',
+  },
+  error: {
+    title: 'Something went wrong',
+    fileTooLarge: 'Image is too large',
+    invalidFormat: 'This format is not supported',
+    imageTooSmall: 'Image is too small',
+    noCardDetected: 'No card detected',
+    noFaceDetected: 'No face detected',
+    modelLoadFailed: 'AI model failed to load',
+    outOfMemory: 'Running low on memory',
+    processingFailed: 'Processing failed',
+    pdfGenerationFailed: 'Failed to generate PDF',
+    unknown: 'An unknown error occurred',
+    tryAgain: 'Please try again',
+  },
+  success: {
+    pdfReady: 'PDF ready!',
+    downloadStarted: 'Download started',
+    saved: 'Saved',
+  },
+  common: {
+    or: 'or',
+    and: 'and',
+    of: 'of',
+    yes: 'Yes',
+    no: 'No',
+    close: 'Close',
+  },
+};
