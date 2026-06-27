@@ -1,0 +1,12 @@
+/**
+ * Entry point for the Dokan Tools Pro design system.
+ * Linked directly from index.html — composes variables, base, and
+ * component styles, plus the Bengali web font.
+ */
+
+@import './variables.css';
+@import './base.css';
+@import './components.css';
+
+/* Load Noto Sans Bengali from Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap');
