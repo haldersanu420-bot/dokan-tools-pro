@@ -91,4 +91,12 @@ export default {
     ready: 'Image ready',
     failed: 'Failed to load image',
   },
+  opencv: {
+    loading: 'Loading processing tools...',
+    loadingHint: 'First load takes 10-20 seconds — browser may slow temporarily, please wait',
+    ready: 'Processing tools ready',
+    failed: 'Failed to load processing tools',
+    retry: 'Try again',
+    networkHint: 'Check your internet connection',
+  },
 };

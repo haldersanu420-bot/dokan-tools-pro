@@ -1,9 +1,10 @@
 import { t, setLanguage, getLanguage } from './locales/index.js';
 import * as logger from './utils/logger.js';
-import { registerGlobalHandlers, createError } from './utils/error-handler.js';
+import { registerGlobalHandlers, createError, handleError } from './utils/error-handler.js';
 import * as toast from './ui/toast.js';
 import { createUploadZone } from './ui/upload.js';
 import { addImages, subscribe, getAll, remove, clear, getStats } from './core/image-store.js';
+import { loadOpenCV } from './lib/opencv-loader.js';
 
 registerGlobalHandlers();
 
@@ -74,6 +75,7 @@ function renderHome() {
           <p class="text-muted text-sm mt-4">Setup verification</p>
           <div class="flex gap-2 mt-4" style="flex-wrap: wrap;">
             <button class="btn btn-secondary text-sm" id="toast-test-btn">টোস্ট টেস্ট</button>
+            <button class="btn btn-secondary text-sm" id="opencv-test-btn">OpenCV টেস্ট</button>
           </div>
         </div>
       </main>
@@ -101,6 +103,43 @@ function renderHome() {
       const err = createError('NO_CARD_DETECTED', 'Test error from button');
       toast.showAppError(err);
     }, 1500);
+  });
+
+  document.getElementById('opencv-test-btn')?.addEventListener('click', async () => {
+    toast.warning(t('opencv.loadingHint'), {
+      title: t('opencv.loading'),
+      duration: 8000,
+    });
+
+    // Let the warning toast render before the heavy script load begins.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const loadingToastId = toast.info(t('opencv.loading'), {
+      title: t('opencv.loadingHint'),
+      duration: 0, // don't auto-dismiss
+    });
+
+    try {
+      const cv = await loadOpenCV();
+      toast.dismiss(loadingToastId);
+      toast.success(t('opencv.ready'), {
+        title: `OpenCV ${cv.getBuildInformation ? 'loaded' : 'ready'}`,
+        recovery: `Mat type available: ${typeof cv.Mat}`,
+      });
+      logger.success('OpenCV loaded successfully', {
+        hasMat: typeof cv.Mat,
+        hasImread: typeof cv.imread,
+      }, 'OPENCV');
+      // Store for console access
+      window.__cv = cv;
+    } catch (err) {
+      toast.dismiss(loadingToastId);
+      const formatted = handleError(err);
+      toast.error(formatted.userMessage, {
+        title: t('opencv.failed'),
+        recovery: t('opencv.networkHint'),
+      });
+    }
   });
 }
 
