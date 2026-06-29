@@ -4,7 +4,7 @@ import { registerGlobalHandlers, createError, handleError } from './utils/error-
 import * as toast from './ui/toast.js';
 import { createUploadZone } from './ui/upload.js';
 import { addImages, subscribe, getAll, remove, clear, getStats } from './core/image-store.js';
-import { loadOpenCV } from './lib/opencv-loader.js';
+import { initOpenCVWorker } from './workers/worker-bridge.js';
 
 registerGlobalHandlers();
 
@@ -76,6 +76,7 @@ function renderHome() {
           <div class="flex gap-2 mt-4" style="flex-wrap: wrap;">
             <button class="btn btn-secondary text-sm" id="toast-test-btn">টোস্ট টেস্ট</button>
             <button class="btn btn-secondary text-sm" id="opencv-test-btn">OpenCV টেস্ট</button>
+            <button class="btn btn-secondary text-sm" id="ui-freeze-test-btn">UI Freeze টেস্ট</button>
           </div>
         </div>
       </main>
@@ -106,32 +107,23 @@ function renderHome() {
   });
 
   document.getElementById('opencv-test-btn')?.addEventListener('click', async () => {
-    toast.warning(t('opencv.loadingHint'), {
-      title: t('opencv.loading'),
-      duration: 8000,
-    });
-
-    // Let the warning toast render before the heavy script load begins.
-    await new Promise((resolve) => setTimeout(resolve, 100));
-
     const loadingToastId = toast.info(t('opencv.loading'), {
       title: t('opencv.loadingHint'),
-      duration: 0, // don't auto-dismiss
+      duration: 0,
     });
 
     try {
-      const cv = await loadOpenCV();
+      const startTime = Date.now();
+      const result = await initOpenCVWorker();
+      const duration = Date.now() - startTime;
+
       toast.dismiss(loadingToastId);
       toast.success(t('opencv.ready'), {
-        title: `OpenCV ${cv.getBuildInformation ? 'loaded' : 'ready'}`,
-        recovery: `Mat type available: ${typeof cv.Mat}`,
+        title: `Loaded in ${duration}ms`,
+        recovery: `Worker active, OpenCV ${result.hasMatType ? 'fully ready' : 'partial'}`,
       });
-      logger.success('OpenCV loaded successfully', {
-        hasMat: typeof cv.Mat,
-        hasImread: typeof cv.imread,
-      }, 'OPENCV');
-      // Store for console access
-      window.__cv = cv;
+
+      logger.success('OpenCV worker initialized', { duration, ...result }, 'OPENCV');
     } catch (err) {
       toast.dismiss(loadingToastId);
       const formatted = handleError(err);
@@ -140,6 +132,16 @@ function renderHome() {
         recovery: t('opencv.networkHint'),
       });
     }
+  });
+
+  document.getElementById('ui-freeze-test-btn')?.addEventListener('click', () => {
+    toast.info('পরের ৫ সেকেন্ড UI smooth আছে কিনা দেখুন — clicks, animations সব কাজ করবে');
+    let counter = 0;
+    const interval = setInterval(() => {
+      counter++;
+      logger.debug(`UI tick ${counter}`, null, 'UI_TEST');
+      if (counter >= 50) clearInterval(interval);
+    }, 100);
   });
 }
 
