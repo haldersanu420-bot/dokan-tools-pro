@@ -83,4 +83,12 @@ export default {
     no: 'না',
     close: 'বন্ধ করুন',
   },
+  imageLoader: {
+    loading: 'ছবি লোড হচ্ছে...',
+    decoding: 'ছবি ডিকোড হচ্ছে...',
+    convertingHeic: 'HEIC ফরম্যাট রূপান্তর হচ্ছে...',
+    resizing: 'ছবি রিসাইজ হচ্ছে...',
+    ready: 'ছবি প্রস্তুত',
+    failed: 'ছবি লোড করা যায়নি',
+  },
 };

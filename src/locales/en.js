@@ -83,4 +83,12 @@ export default {
     no: 'No',
     close: 'Close',
   },
+  imageLoader: {
+    loading: 'Loading image...',
+    decoding: 'Decoding image...',
+    convertingHeic: 'Converting HEIC format...',
+    resizing: 'Resizing image...',
+    ready: 'Image ready',
+    failed: 'Failed to load image',
+  },
 };
