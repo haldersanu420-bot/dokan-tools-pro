@@ -1,9 +1,9 @@
 import { t, setLanguage, getLanguage } from './locales/index.js';
 import * as logger from './utils/logger.js';
-import { registerGlobalHandlers, createError, handleError } from './utils/error-handler.js';
+import { registerGlobalHandlers, createError } from './utils/error-handler.js';
 import * as toast from './ui/toast.js';
 import { createUploadZone } from './ui/upload.js';
-import { loadImage } from './core/image-loader.js';
+import { addImages, subscribe, getAll, remove, clear, getStats } from './core/image-store.js';
 
 registerGlobalHandlers();
 
@@ -125,53 +125,46 @@ function renderCardSheetModule() {
     </div>
   `;
 
+  const unsubscribeStore = subscribe(({ images, stats }) => {
+    logger.debug('Image store updated', stats, 'IMAGE_STORE');
+  });
+
   const zone = createUploadZone({
     container: document.getElementById('upload-area'),
-    onFilesAdded: async (files) => {
-      toast.info(`${files.length} টি ছবি প্রসেস হচ্ছে...`);
-      logger.info('Loading uploaded files', { count: files.length }, 'UPLOAD');
+    onFilesAdded: (files) => {
+      toast.info(`${files.length} টি ছবি যোগ হচ্ছে...`);
+      const ids = addImages(files);
+      logger.info('Files added to store', { ids, count: ids.length }, 'UPLOAD');
 
-      const loadedImages = [];
-
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        try {
-          const loaded = await loadImage(file, {
-            onProgress: (stage, pct) => {
-              logger.debug(`Image ${i + 1}/${files.length}: ${stage} ${pct}%`, null, 'IMAGE_LOAD');
-            },
-          });
-          loadedImages.push(loaded);
-          logger.success(`Image loaded: ${file.name}`, {
-            originalSize: loaded.metadata.originalDimensions,
-            processingSize: loaded.metadata.processedDimensions,
-          }, 'IMAGE_LOAD');
-        } catch (err) {
-          const formatted = handleError(err);
-          toast.error(formatted.userMessage, {
-            title: file.name,
-            recovery: formatted.recovery,
-          });
+      const interval = setInterval(() => {
+        const stats = getStats();
+        if (stats.pending === 0 && stats.loading === 0) {
+          clearInterval(interval);
+          if (stats.failed > 0) {
+            toast.warning(`${stats.ready} টি প্রস্তুত, ${stats.failed} টি ব্যর্থ`);
+          } else {
+            toast.success(`${stats.ready} টি ছবি প্রস্তুত`);
+          }
         }
-      }
-
-      if (loadedImages.length > 0) {
-        toast.success(`${loadedImages.length} টি ছবি প্রস্তুত`);
-        // Temporary global for debugging until the next phase (card detection) consumes these
-        window.__loadedImages = loadedImages;
-        logger.success('All images loaded', { count: loadedImages.length }, 'IMAGE_LOAD');
-      }
+      }, 500);
     },
     onFileRemoved: (file, remaining) => {
-      logger.info('File removed', { name: file.name, remaining: remaining.length }, 'UPLOAD');
+      const entry = getAll().find((e) => e.file === file);
+      if (entry) {
+        remove(entry.id);
+        logger.info('Image removed from store', { id: entry.id }, 'IMAGE_STORE');
+      }
     },
     onClear: () => {
-      logger.info('All files cleared', null, 'UPLOAD');
+      const count = clear();
+      logger.info('All images cleared', { count }, 'IMAGE_STORE');
     },
   });
 
   document.getElementById('back-home')?.addEventListener('click', () => {
     zone.destroy();
+    unsubscribeStore();
+    clear();
     renderHome();
   });
 }
