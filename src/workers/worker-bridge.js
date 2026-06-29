@@ -154,3 +154,67 @@ export async function workerGrayscale(canvas) {
 
   return result; // ImageBitmap of grayscale result
 }
+
+// Preprocess: returns edges as ImageBitmap
+export async function workerPreprocess(canvas, options = {}) {
+  if (!initialized) await initOpenCVWorker();
+
+  const imageBitmap = await createImageBitmap(canvas);
+
+  const result = await callWorker('preprocess', {
+    imageBitmap,
+    width: canvas.width,
+    height: canvas.height,
+    blurKernel: options.blurKernel ?? 5,
+    cannyLow: options.cannyLow ?? 50,
+    cannyHigh: options.cannyHigh ?? 150,
+  }, [imageBitmap]);
+
+  return result; // { edgesBitmap, width, height }
+}
+
+// Find card-like quadrilateral contours
+export async function workerFindContours(canvas, options = {}) {
+  if (!initialized) await initOpenCVWorker();
+
+  const imageBitmap = await createImageBitmap(canvas);
+
+  const result = await callWorker('findContours', {
+    imageBitmap,
+    width: canvas.width,
+    height: canvas.height,
+    minAreaRatio: options.minAreaRatio ?? 0.02,
+    maxAreaRatio: options.maxAreaRatio ?? 0.95,
+  }, [imageBitmap]);
+
+  return result; // { quads: [{ corners, area, perimeter }], totalContours, imageWidth, imageHeight }
+}
+
+// Perspective correction
+export async function workerPerspectiveCorrect(canvas, corners, outputWidth, outputHeight) {
+  if (!initialized) await initOpenCVWorker();
+
+  const imageBitmap = await createImageBitmap(canvas);
+
+  const result = await callWorker('perspectiveCorrect', {
+    imageBitmap,
+    width: canvas.width,
+    height: canvas.height,
+    corners,
+    outputWidth,
+    outputHeight,
+  }, [imageBitmap]);
+
+  return result; // { correctedBitmap, width, height }
+}
+
+// Helper: paint an ImageBitmap onto a new canvas (caller uses this to display results)
+export function bitmapToCanvas(imageBitmap, width, height) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(imageBitmap, 0, 0);
+  imageBitmap.close(); // free GPU memory
+  return canvas;
+}

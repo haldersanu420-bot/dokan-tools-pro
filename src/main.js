@@ -4,7 +4,12 @@ import { registerGlobalHandlers, createError, handleError } from './utils/error-
 import * as toast from './ui/toast.js';
 import { createUploadZone } from './ui/upload.js';
 import { addImages, subscribe, getAll, remove, clear, getStats } from './core/image-store.js';
-import { initOpenCVWorker } from './workers/worker-bridge.js';
+import {
+  initOpenCVWorker,
+  workerPreprocess,
+  workerFindContours,
+  workerPerspectiveCorrect,
+} from './workers/worker-bridge.js';
 
 registerGlobalHandlers();
 
@@ -77,6 +82,7 @@ function renderHome() {
             <button class="btn btn-secondary text-sm" id="toast-test-btn">টোস্ট টেস্ট</button>
             <button class="btn btn-secondary text-sm" id="opencv-test-btn">OpenCV টেস্ট</button>
             <button class="btn btn-secondary text-sm" id="ui-freeze-test-btn">UI Freeze টেস্ট</button>
+            <button class="btn btn-secondary text-sm" id="cv-pipeline-test-btn">CV Pipeline টেস্ট</button>
           </div>
         </div>
       </main>
@@ -142,6 +148,73 @@ function renderHome() {
       logger.debug(`UI tick ${counter}`, null, 'UI_TEST');
       if (counter >= 50) clearInterval(interval);
     }, 100);
+  });
+
+  document.getElementById('cv-pipeline-test-btn')?.addEventListener('click', async () => {
+    const loadingId = toast.info('CV pipeline test চলছে...', { duration: 0 });
+
+    try {
+      // Ensure worker ready
+      await initOpenCVWorker();
+
+      // Create a test canvas with a white rectangle on dark background (simulates a card)
+      const testCanvas = document.createElement('canvas');
+      testCanvas.width = 800;
+      testCanvas.height = 600;
+      const ctx = testCanvas.getContext('2d');
+      ctx.fillStyle = '#222';
+      ctx.fillRect(0, 0, 800, 600);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(150, 100, 500, 400); // a 500x400 white rect
+
+      // Test 1: preprocess (should return edges)
+      const t1 = Date.now();
+      const preResult = await workerPreprocess(testCanvas);
+      const preDuration = Date.now() - t1;
+      logger.success('Preprocess done', { duration: preDuration, hasBitmap: !!preResult.edgesBitmap }, 'CV_TEST');
+
+      // Test 2: find contours (should find at least 1 quad)
+      const t2 = Date.now();
+      const contoursResult = await workerFindContours(testCanvas);
+      const contoursDuration = Date.now() - t2;
+      logger.success('Find contours done', {
+        duration: contoursDuration,
+        quadsFound: contoursResult.quads.length,
+        totalContours: contoursResult.totalContours,
+      }, 'CV_TEST');
+
+      // Test 3: if a quad found, perspective correct it
+      let perspectiveDuration = 0;
+      if (contoursResult.quads.length > 0) {
+        const corners = contoursResult.quads[0].corners;
+        const t3 = Date.now();
+        const corrected = await workerPerspectiveCorrect(testCanvas, corners, 600, 400);
+        perspectiveDuration = Date.now() - t3;
+        logger.success('Perspective correct done', {
+          duration: perspectiveDuration,
+          hasBitmap: !!corrected.correctedBitmap,
+        }, 'CV_TEST');
+
+        // Store results for inspection
+        window.__cvTestResults = { preResult, contoursResult, corrected };
+      } else {
+        window.__cvTestResults = { preResult, contoursResult };
+      }
+
+      toast.dismiss(loadingId);
+      toast.success('CV Pipeline সফল!', {
+        title: `${contoursResult.quads.length} টি quad পাওয়া গেছে`,
+        recovery: `Preprocess: ${preDuration}ms, Contours: ${contoursDuration}ms, Perspective: ${perspectiveDuration}ms`,
+      });
+    } catch (err) {
+      toast.dismiss(loadingId);
+      const formatted = handleError(err);
+      toast.error(formatted.userMessage, {
+        title: 'CV Pipeline ব্যর্থ',
+        recovery: err.message,
+      });
+      logger.error('CV pipeline test failed', err, 'CV_TEST');
+    }
   });
 }
 
