@@ -460,3 +460,30 @@ export function bitmapToCanvas(imageBitmap, width, height) {
   imageBitmap.close(); // free GPU memory
   return canvas;
 }
+
+// Final high-quality perspective correction
+// Uses the ORIGINAL canvas (not processing version) for best quality
+// corners must be in original canvas coordinate space
+export async function correctCardFinal(canvas, corners, options = {}) {
+  if (!initialized) await initOpenCVWorker();
+
+  const {
+    outputWidth = 1016, // 86mm @ 300 DPI
+    outputHeight = 638, // 54mm @ 300 DPI
+    enhance = true,
+  } = options;
+
+  const imageBitmap = await createImageBitmap(canvas);
+
+  const result = await callWorker('correctCardFinal', {
+    imageBitmap,
+    width: canvas.width,
+    height: canvas.height,
+    corners,
+    outputWidth,
+    outputHeight,
+    enhance,
+  }, [imageBitmap]);
+
+  return result;
+}

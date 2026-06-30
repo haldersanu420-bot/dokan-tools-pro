@@ -617,3 +617,34 @@
     text-align: center;
   }
 }
+
+/* Corrected cards grid */
+.corrected-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.corrected-item {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  padding: var(--space-3);
+}
+
+.corrected-item canvas {
+  display: block;
+  border-radius: var(--radius-sm);
+  background: white;
+}
+
+.corrected-item-caption {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  margin-top: var(--space-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

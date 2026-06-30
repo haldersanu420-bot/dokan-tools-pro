@@ -132,6 +132,11 @@ self.addEventListener('message', async (e) => {
         result = await detectCardCorners(payload);
         break;
 
+      case 'correctCardFinal':
+        await loadONNXRuntime(); // ensure cv too via loadOpenCV path
+        result = await correctCardFinal(payload);
+        break;
+
       default:
         throw new Error(`Unknown message type: ${type}`);
     }
@@ -426,6 +431,97 @@ function orderCorners(corners) {
   const bl = withMetrics.reduce((a, b) => (a.diff > b.diff ? a : b));
 
   return { tl, tr, br, bl };
+}
+
+// Final high-quality perspective correction
+// Uses original (full-res) canvas data, not the downsized processing version
+async function correctCardFinal({ imageBitmap, width, height, corners, outputWidth, outputHeight, enhance = true }) {
+  if (!cv || !isReady) throw new Error('OpenCV not ready');
+  if (!corners || corners.length !== 4) throw new Error('4 corners required');
+
+  const src = bitmapToMat(imageBitmap, width, height);
+  const dst = new cv.Mat();
+
+  try {
+    // Order corners properly
+    const ordered = orderCorners(corners);
+
+    // Source points
+    const srcPts = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      ordered.tl.x, ordered.tl.y,
+      ordered.tr.x, ordered.tr.y,
+      ordered.br.x, ordered.br.y,
+      ordered.bl.x, ordered.bl.y,
+    ]);
+
+    // Destination points (clean rectangle)
+    const dstPts = cv.matFromArray(4, 1, cv.CV_32FC2, [
+      0, 0,
+      outputWidth, 0,
+      outputWidth, outputHeight,
+      0, outputHeight,
+    ]);
+
+    // Transformation matrix
+    const M = cv.getPerspectiveTransform(srcPts, dstPts);
+
+    // Apply warp with high-quality interpolation
+    const dsize = new cv.Size(outputWidth, outputHeight);
+    cv.warpPerspective(
+      src, dst, M, dsize,
+      cv.INTER_CUBIC, // higher quality than INTER_LINEAR
+      cv.BORDER_REPLICATE
+    );
+
+    // Optional: quality enhancement
+    if (enhance) {
+      // 1. Slight sharpening using unsharp mask technique
+      const blurred = new cv.Mat();
+      cv.GaussianBlur(dst, blurred, new cv.Size(0, 0), 1.5);
+      cv.addWeighted(dst, 1.5, blurred, -0.5, 0, dst);
+      blurred.delete();
+
+      // 2. Auto contrast (simple: stretch histogram)
+      // Convert to LAB color space for L channel processing
+      const lab = new cv.Mat();
+      cv.cvtColor(dst, lab, cv.COLOR_RGBA2RGB);
+      cv.cvtColor(lab, lab, cv.COLOR_RGB2Lab);
+
+      const labChannels = new cv.MatVector();
+      cv.split(lab, labChannels);
+
+      // Apply CLAHE to L channel
+      const lChannel = labChannels.get(0);
+      const clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
+      clahe.apply(lChannel, lChannel);
+      clahe.delete();
+
+      // Merge back
+      cv.merge(labChannels, lab);
+      cv.cvtColor(lab, lab, cv.COLOR_Lab2RGB);
+      cv.cvtColor(lab, dst, cv.COLOR_RGB2RGBA);
+
+      lab.delete();
+      labChannels.delete();
+    }
+
+    // Convert result to ImageBitmap
+    const resultBitmap = matToBitmap(dst, outputWidth, outputHeight);
+
+    srcPts.delete();
+    dstPts.delete();
+    M.delete();
+
+    return {
+      correctedBitmap: resultBitmap,
+      width: outputWidth,
+      height: outputHeight,
+      enhanced: enhance,
+    };
+  } finally {
+    src.delete();
+    dst.delete();
+  }
 }
 
 // Load ONNX Runtime inside worker. Self-hosted from /onnxruntime/ (same

@@ -382,7 +382,7 @@ function renderCardSheetModule() {
     `;
 
     container.querySelectorAll('.bulk-action-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         const action = btn.dataset.bulk;
 
         if (action === 'confirm-all') {
@@ -405,17 +405,47 @@ function renderCardSheetModule() {
             toast.warning('কোনো নিশ্চিত ছবি নেই');
             return;
           }
-          // For now, just confirmation toast — Phase G will hook into this
-          toast.success(`${ready.length} টি ছবি প্রসেসের জন্য প্রস্তুত`, {
-            title: 'Phase G coming soon',
-            recovery: 'Perspective correction পরের ধাপে',
-          });
-          logger.success('Ready to process', {
-            count: ready.length,
-            ids: ready.map((e) => e.id),
-          }, 'PROCESS');
-          // Store for next phase
-          window.__readyToProcess = ready;
+
+          const loadingId = toast.info(t('correction.processing'), { duration: 0 });
+
+          try {
+            const { runCorrectionPipeline, renderCorrectionView } =
+              await import('./modules/card-sheet/correction-view.js');
+
+            const result = await runCorrectionPipeline(({ current, total, filename }) => {
+              toast.dismiss(loadingId);
+              toast.info(
+                `${t('correction.processingItem')} ${current}/${total}: ${filename}`,
+                { duration: 0 }
+              );
+            });
+
+            toast.dismissAll();
+
+            if (result.processed > 0) {
+              toast.success(
+                `${result.processed} ${t('correction.complete')}`,
+                result.failed > 0 ? { recovery: `${result.failed} ব্যর্থ` } : undefined
+              );
+
+              // Render the correction view
+              renderCorrectionView(document.querySelector('#app'), {
+                onBack: () => renderCardSheetModule(),
+                onProceedToPDF: () => {
+                  toast.info('Phase H coming next', {
+                    title: 'PDF Export',
+                    recovery: 'সব কার্ড A4-এ সাজানো হবে',
+                  });
+                },
+              });
+            } else {
+              toast.error('কোনো কার্ড process হয়নি');
+            }
+          } catch (err) {
+            toast.dismissAll();
+            toast.error(err.message || 'Processing failed');
+            logger.error('Correction pipeline failed', err, 'CORRECTION');
+          }
         }
       });
     });

@@ -103,6 +103,7 @@ export function addImage(file) {
     detectionStatus: null,
     userDecision: null, // 'confirmed' | 'rejected' | null
     manualCorners: null, // user-edited corners
+    correctedCard: null, // { canvas, width, height } after perspective correction
     timestamp: Date.now(),
   };
 
@@ -169,6 +170,13 @@ export function remove(id) {
   }
   entry.manualCorners = null;
 
+  // Release the corrected-output canvas, if any
+  if (entry.correctedCard?.canvas) {
+    entry.correctedCard.canvas.width = 0;
+    entry.correctedCard.canvas.height = 0;
+  }
+  entry.correctedCard = null;
+
   images.delete(id);
   clearDetectionCache();
   notifySubscribers();
@@ -193,6 +201,12 @@ export function clear() {
       entry.detectedCards.length = 0;
     }
     entry.manualCorners = null;
+
+    if (entry.correctedCard?.canvas) {
+      entry.correctedCard.canvas.width = 0;
+      entry.correctedCard.canvas.height = 0;
+    }
+    entry.correctedCard = null;
   });
 
   images.clear();
@@ -322,5 +336,32 @@ export function getConfirmed() {
   return getAll().filter((e) =>
     e.userDecision === 'confirmed' &&
     e.detectedCards.length > 0
+  );
+}
+
+/**
+ * Records the perspective-corrected output canvas for an entry.
+ * @param {string} id
+ * @param {{ canvas: HTMLCanvasElement, width: number, height: number }} correctedData
+ * @returns {boolean} Whether an entry was found and updated
+ */
+export function setCorrectedCard(id, correctedData) {
+  const entry = images.get(id);
+  if (!entry) return false;
+
+  entry.correctedCard = correctedData;
+  notifySubscribers();
+  info('Corrected card set', { id }, 'IMAGE_STORE');
+  return true;
+}
+
+/**
+ * Returns confirmed entries that have a corrected (perspective-fixed) output.
+ * @returns {object[]}
+ */
+export function getCorrectedCards() {
+  return getAll().filter((e) =>
+    e.userDecision === 'confirmed' &&
+    e.correctedCard !== null
   );
 }

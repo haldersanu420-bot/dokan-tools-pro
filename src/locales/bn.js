@@ -131,4 +131,16 @@ export default {
     rejectAll: 'সব বাদ',
     processSelected: 'নির্বাচিত প্রসেস করুন',
   },
+  correction: {
+    processing: 'কার্ড সোজা করা হচ্ছে...',
+    processingItem: 'প্রসেসিং',
+    of: 'এর',
+    complete: 'সম্পন্ন!',
+    correctedCards: 'সোজা করা কার্ড',
+    download: 'PDF ডাউনলোড',
+    backToEdit: 'পেছনে যান',
+    enhanceQuality: 'কোয়ালিটি বাড়ান',
+    originalSize: 'মূল আকার',
+    cardSize: 'কার্ড সাইজ',
+  },
 };

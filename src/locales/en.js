@@ -131,4 +131,16 @@ export default {
     rejectAll: 'Reject all',
     processSelected: 'Process selected',
   },
+  correction: {
+    processing: 'Straightening cards...',
+    processingItem: 'Processing',
+    of: 'of',
+    complete: 'Complete!',
+    correctedCards: 'Straightened cards',
+    download: 'Download PDF',
+    backToEdit: 'Back',
+    enhanceQuality: 'Enhance quality',
+    originalSize: 'Original size',
+    cardSize: 'Card size',
+  },
 };
