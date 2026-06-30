@@ -11,6 +11,9 @@ import {
   workerPerspectiveCorrect,
   initONNXRuntime,
   testONNXInference,
+  loadCardDetector,
+  detectCard,
+  maskToCanvas,
 } from './workers/worker-bridge.js';
 
 registerGlobalHandlers();
@@ -86,6 +89,8 @@ function renderHome() {
             <button class="btn btn-secondary text-sm" id="ui-freeze-test-btn">UI Freeze টেস্ট</button>
             <button class="btn btn-secondary text-sm" id="cv-pipeline-test-btn">CV Pipeline টেস্ট</button>
             <button class="btn btn-secondary text-sm" id="onnx-test-btn">AI ইঞ্জিন টেস্ট</button>
+            <button class="btn btn-secondary text-sm" id="model-load-test-btn">AI মডেল লোড</button>
+            <button class="btn btn-secondary text-sm" id="card-detect-test-btn">কার্ড ডিটেক্ট টেস্ট</button>
           </div>
         </div>
       </main>
@@ -259,6 +264,98 @@ function renderHome() {
         recovery: err.message,
       });
       logger.error('ONNX test failed', err, 'ONNX');
+    }
+  });
+
+  document.getElementById('model-load-test-btn')?.addEventListener('click', async () => {
+    const loadingId = toast.info(t('ai.modelLoading'), { duration: 0 });
+
+    try {
+      const startTime = Date.now();
+      const result = await loadCardDetector();
+      const duration = Date.now() - startTime;
+
+      toast.dismiss(loadingId);
+      toast.success(t('ai.modelReady'), {
+        title: `Loaded in ${duration}ms`,
+        recovery: `Cached: ${result.cached}, Inputs: ${result.inputNames?.join(',')}`,
+      });
+
+      logger.success('Model loaded', { duration, ...result }, 'AI');
+    } catch (err) {
+      toast.dismiss(loadingId);
+      toast.error(err.message || 'Model load failed', {
+        title: t('ai.failed'),
+        duration: 8000,
+      });
+      logger.error('Model load failed', err, 'AI');
+    }
+  });
+
+  document.getElementById('card-detect-test-btn')?.addEventListener('click', async () => {
+    const loadingId = toast.info('কার্ড ডিটেক্ট করা হচ্ছে...', { duration: 0 });
+
+    try {
+      // Create a test image: white rectangle on dark background (simulates a card)
+      const testCanvas = document.createElement('canvas');
+      testCanvas.width = 640;
+      testCanvas.height = 480;
+      const ctx = testCanvas.getContext('2d');
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(0, 0, 640, 480);
+      ctx.fillStyle = '#f0f0f0';
+      ctx.fillRect(120, 100, 400, 280); // a card-like rectangle
+      // Add some "card content" texture
+      ctx.fillStyle = '#888';
+      ctx.fillRect(150, 130, 100, 80); // photo area
+      ctx.fillStyle = '#666';
+      for (let i = 0; i < 5; i++) {
+        ctx.fillRect(280, 150 + i * 25, 200, 8); // text lines
+      }
+
+      const t1 = Date.now();
+      const result = await detectCard(testCanvas);
+      const duration = Date.now() - t1;
+
+      // Convert mask to canvas for preview
+      const maskCanvas = maskToCanvas(result.mask, result.maskWidth, result.maskHeight);
+
+      // Store everything for inspection
+      window.__cardDetectTest = {
+        input: testCanvas,
+        mask: result.mask,
+        maskCanvas,
+        duration,
+        ...result,
+      };
+
+      // Count "card" pixels (where mask > 0.5)
+      let cardPixels = 0;
+      for (let i = 0; i < result.mask.length; i++) {
+        if (result.mask[i] > 0.5) cardPixels++;
+      }
+      const totalPixels = result.maskWidth * result.maskHeight;
+      const coverage = ((cardPixels / totalPixels) * 100).toFixed(1);
+
+      toast.dismiss(loadingId);
+      toast.success(`কার্ড ডিটেক্ট সফল!`, {
+        title: `${duration}ms, ${coverage}% area`,
+        recovery: `Check window.__cardDetectTest in console for mask preview`,
+      });
+
+      logger.success('Card detection test', {
+        duration,
+        coverage: coverage + '%',
+        cardPixels,
+        totalPixels,
+      }, 'AI');
+    } catch (err) {
+      toast.dismiss(loadingId);
+      toast.error(err.message || 'Detection failed', {
+        title: t('ai.inferenceFailed'),
+        duration: 8000,
+      });
+      logger.error('Card detect test failed', err, 'AI');
     }
   });
 }

@@ -86,3 +86,24 @@ export const CARDS_PER_A4_OPTIONS = [4, 6, 8, 10];
 
 /** @type {number} JPEG compression quality used when embedding images in PDF (0-1) */
 export const PDF_JPEG_QUALITY = 0.9;
+
+// ---- AI model paths and config ----
+
+/** @type {{ cardDetector: string }} Paths to self-hosted ONNX model files */
+export const MODEL_PATHS = {
+  cardDetector: '/models/u2netp.onnx',
+};
+
+/** @type {number} U²-Net expects a 320x320 RGB input */
+export const U2NET_INPUT_SIZE = 320;
+
+/** @type {number[]} ImageNet normalization mean (R, G, B) */
+export const U2NET_INPUT_MEAN = [0.485, 0.456, 0.406];
+
+/** @type {number[]} ImageNet normalization std deviation (R, G, B) */
+export const U2NET_INPUT_STD = [0.229, 0.224, 0.225];
+
+// ---- Mask post-processing ----
+
+/** @type {number} Binarization threshold: mask pixels > this value are card area */
+export const MASK_THRESHOLD = 0.5;

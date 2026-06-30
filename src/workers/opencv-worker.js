@@ -19,6 +19,10 @@ let ortReady = false;
 let ortLoadPromise = null;
 let ortBackend = 'unknown';
 
+// Model state
+let cardDetectorSession = null;
+let modelLoadPromise = null;
+
 // Load OpenCV inside worker
 function loadOpenCV() {
   if (isReady) return Promise.resolve();
@@ -111,6 +115,16 @@ self.addEventListener('message', async (e) => {
       case 'onnxTestInference':
         await loadONNXRuntime();
         result = await runOnnxTestInference();
+        break;
+
+      case 'loadCardDetectorModel':
+        await loadONNXRuntime();
+        result = await loadCardDetectorModel(payload);
+        break;
+
+      case 'detectCardMask':
+        await loadONNXRuntime();
+        result = await detectCardMask(payload);
         break;
 
       default:
@@ -508,6 +522,102 @@ async function runOnnxTestInference() {
     backend: ortBackend,
     ortAvailable: typeof ortRuntime === 'object',
     inferenceSessionAvailable: typeof ortRuntime.InferenceSession === 'function',
+  };
+}
+
+// Load the U²-Net model
+async function loadCardDetectorModel({ modelUrl }) {
+  if (cardDetectorSession) {
+    return { loaded: true, cached: true };
+  }
+  if (modelLoadPromise) {
+    await modelLoadPromise;
+    return { loaded: true, cached: true };
+  }
+
+  modelLoadPromise = (async () => {
+    try {
+      // ortRuntime is the variable we renamed from `ort` in Task E1
+      cardDetectorSession = await ortRuntime.InferenceSession.create(modelUrl, {
+        executionProviders: ['wasm'],
+        graphOptimizationLevel: 'all',
+      });
+
+      return cardDetectorSession;
+    } catch (err) {
+      modelLoadPromise = null;
+      throw err;
+    }
+  })();
+
+  await modelLoadPromise;
+
+  // Inspect model
+  const inputNames = cardDetectorSession.inputNames;
+  const outputNames = cardDetectorSession.outputNames;
+
+  return {
+    loaded: true,
+    cached: false,
+    inputNames,
+    outputNames,
+  };
+}
+
+// Run card detection on an image
+// Input: ImageBitmap + dimensions
+// Output: a probability mask (Float32Array) at model's native size (320x320)
+async function detectCardMask({ imageBitmap, width, height }) {
+  if (!cardDetectorSession) {
+    throw new Error('Card detector model not loaded. Call loadCardDetectorModel first.');
+  }
+
+  const INPUT_SIZE = 320;
+  const MEAN = [0.485, 0.456, 0.406];
+  const STD = [0.229, 0.224, 0.225];
+
+  // Resize input to 320x320 using OffscreenCanvas
+  const canvas = new OffscreenCanvas(INPUT_SIZE, INPUT_SIZE);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(imageBitmap, 0, 0, INPUT_SIZE, INPUT_SIZE);
+  const imageData = ctx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE);
+  const pixels = imageData.data; // RGBA, length = 320*320*4
+
+  // Convert to CHW float32 tensor with normalization
+  // Format expected by U²-Net: [1, 3, 320, 320]
+  const tensorData = new Float32Array(1 * 3 * INPUT_SIZE * INPUT_SIZE);
+
+  for (let i = 0; i < INPUT_SIZE * INPUT_SIZE; i++) {
+    const r = pixels[i * 4] / 255;
+    const g = pixels[i * 4 + 1] / 255;
+    const b = pixels[i * 4 + 2] / 255;
+
+    // Normalize and arrange in CHW layout
+    tensorData[i] = (r - MEAN[0]) / STD[0]; // R channel
+    tensorData[i + INPUT_SIZE * INPUT_SIZE] = (g - MEAN[1]) / STD[1]; // G channel
+    tensorData[i + 2 * INPUT_SIZE * INPUT_SIZE] = (b - MEAN[2]) / STD[2]; // B channel
+  }
+
+  const inputTensor = new ortRuntime.Tensor('float32', tensorData, [1, 3, INPUT_SIZE, INPUT_SIZE]);
+
+  const inputName = cardDetectorSession.inputNames[0];
+  const feeds = { [inputName]: inputTensor };
+
+  // Run inference
+  const outputs = await cardDetectorSession.run(feeds);
+  const outputName = cardDetectorSession.outputNames[0];
+  const outputTensor = outputs[outputName];
+
+  // Output is typically [1, 1, 320, 320] — probability mask
+  // Extract just the mask data
+  const maskData = new Float32Array(outputTensor.data);
+
+  return {
+    mask: maskData, // 320x320 = 102400 floats, values in [0, 1]
+    maskWidth: INPUT_SIZE,
+    maskHeight: INPUT_SIZE,
+    originalWidth: width,
+    originalHeight: height,
   };
 }
 

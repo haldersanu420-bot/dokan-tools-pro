@@ -3,6 +3,7 @@
 
 import * as logger from '../utils/logger.js';
 import { createError } from '../utils/error-handler.js';
+import { MODEL_PATHS } from '../utils/constants.js';
 
 let worker = null;
 let messageCounter = 0;
@@ -247,6 +248,76 @@ export async function testONNXInference() {
 
   const result = await callWorker('onnxTestInference');
   return result;
+}
+
+// Check if card detector is loaded
+let cardDetectorReady = false;
+async function isCardDetectorReady() {
+  return cardDetectorReady;
+}
+
+// Load the card detector model
+export async function loadCardDetector() {
+  if (!initialized) await initOpenCVWorker();
+
+  // Make sure ONNX is initialized
+  await initONNXRuntime();
+
+  logger.info('Loading card detector model', { url: MODEL_PATHS.cardDetector }, 'AI');
+  const startTime = Date.now();
+
+  const result = await callWorker('loadCardDetectorModel', {
+    modelUrl: MODEL_PATHS.cardDetector,
+  });
+
+  cardDetectorReady = true;
+
+  const duration = Date.now() - startTime;
+  logger.success('Card detector loaded', { duration, ...result }, 'AI');
+  return result;
+}
+
+// Detect card mask in an image
+// Returns { mask: Float32Array, maskWidth, maskHeight, originalWidth, originalHeight }
+export async function detectCard(canvas) {
+  if (!initialized) await initOpenCVWorker();
+
+  // Ensure model is loaded
+  if (!await isCardDetectorReady()) {
+    await loadCardDetector();
+  }
+
+  const imageBitmap = await createImageBitmap(canvas);
+
+  const result = await callWorker('detectCardMask', {
+    imageBitmap,
+    width: canvas.width,
+    height: canvas.height,
+  }, [imageBitmap]);
+
+  return result;
+}
+
+// Convert mask Float32Array to a visible canvas (for debugging/preview)
+export function maskToCanvas(maskData, maskWidth, maskHeight, threshold = 0.5) {
+  const canvas = document.createElement('canvas');
+  canvas.width = maskWidth;
+  canvas.height = maskHeight;
+  const ctx = canvas.getContext('2d');
+  const imageData = ctx.createImageData(maskWidth, maskHeight);
+  const pixels = imageData.data;
+
+  for (let i = 0; i < maskData.length; i++) {
+    const val = maskData[i];
+    const binaryVal = val > threshold ? 255 : 0;
+    pixels[i * 4] = binaryVal; // R
+    pixels[i * 4 + 1] = binaryVal; // G
+    pixels[i * 4 + 2] = binaryVal; // B
+    pixels[i * 4 + 3] = 255; // A
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  return canvas;
 }
 
 // Helper: paint an ImageBitmap onto a new canvas (caller uses this to display results)
