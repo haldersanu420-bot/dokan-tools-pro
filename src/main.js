@@ -12,8 +12,8 @@ import {
   initONNXRuntime,
   testONNXInference,
   loadCardDetector,
-  detectCard,
-  maskToCanvas,
+  detectCardInImage,
+  drawCornersOverlay,
 } from './workers/worker-bridge.js';
 
 registerGlobalHandlers();
@@ -90,8 +90,10 @@ function renderHome() {
             <button class="btn btn-secondary text-sm" id="cv-pipeline-test-btn">CV Pipeline টেস্ট</button>
             <button class="btn btn-secondary text-sm" id="onnx-test-btn">AI ইঞ্জিন টেস্ট</button>
             <button class="btn btn-secondary text-sm" id="model-load-test-btn">AI মডেল লোড</button>
-            <button class="btn btn-secondary text-sm" id="card-detect-test-btn">কার্ড ডিটেক্ট টেস্ট</button>
+            <button class="btn btn-secondary text-sm" id="card-detect-test-btn">কার্ড ডিটেক্ট পাইপলাইন টেস্ট</button>
+            <button class="btn btn-secondary text-sm" id="detect-uploaded-btn">আপলোডেড ছবিতে কার্ড খুঁজুন</button>
           </div>
+          <div id="detection-result-area" style="margin-top: var(--space-4);"></div>
         </div>
       </main>
 
@@ -293,69 +295,150 @@ function renderHome() {
   });
 
   document.getElementById('card-detect-test-btn')?.addEventListener('click', async () => {
-    const loadingId = toast.info('কার্ড ডিটেক্ট করা হচ্ছে...', { duration: 0 });
+    const loadingId = toast.info('পাইপলাইন চলছে...', { duration: 0 });
 
     try {
-      // Create a test image: white rectangle on dark background (simulates a card)
+      // Create test image (better simulation of an ID card)
       const testCanvas = document.createElement('canvas');
-      testCanvas.width = 640;
-      testCanvas.height = 480;
+      testCanvas.width = 800;
+      testCanvas.height = 600;
       const ctx = testCanvas.getContext('2d');
+
+      // Dark background
       ctx.fillStyle = '#1a1a1a';
-      ctx.fillRect(0, 0, 640, 480);
-      ctx.fillStyle = '#f0f0f0';
-      ctx.fillRect(120, 100, 400, 280); // a card-like rectangle
-      // Add some "card content" texture
-      ctx.fillStyle = '#888';
-      ctx.fillRect(150, 130, 100, 80); // photo area
-      ctx.fillStyle = '#666';
-      for (let i = 0; i < 5; i++) {
-        ctx.fillRect(280, 150 + i * 25, 200, 8); // text lines
-      }
+      ctx.fillRect(0, 0, 800, 600);
 
-      const t1 = Date.now();
-      const result = await detectCard(testCanvas);
-      const duration = Date.now() - t1;
+      // Card with slight rotation
+      ctx.save();
+      ctx.translate(400, 300);
+      ctx.rotate(0.08); // ~5 degrees
 
-      // Convert mask to canvas for preview
-      const maskCanvas = maskToCanvas(result.mask, result.maskWidth, result.maskHeight);
+      // Card body
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-220, -140, 440, 280);
 
-      // Store everything for inspection
-      window.__cardDetectTest = {
-        input: testCanvas,
-        mask: result.mask,
-        maskCanvas,
-        duration,
-        ...result,
-      };
+      // Card content
+      ctx.fillStyle = '#cccccc';
+      ctx.fillRect(-200, -120, 110, 110); // photo
+      ctx.fillStyle = '#333';
+      ctx.font = '16px sans-serif';
+      ctx.fillText('Sample ID Card', -80, -100);
+      ctx.font = '12px sans-serif';
+      ctx.fillText('Name: Test User', -80, -70);
+      ctx.fillText('DOB: 01/01/2000', -80, -50);
 
-      // Count "card" pixels (where mask > 0.5)
-      let cardPixels = 0;
-      for (let i = 0; i < result.mask.length; i++) {
-        if (result.mask[i] > 0.5) cardPixels++;
-      }
-      const totalPixels = result.maskWidth * result.maskHeight;
-      const coverage = ((cardPixels / totalPixels) * 100).toFixed(1);
+      ctx.restore();
 
-      toast.dismiss(loadingId);
-      toast.success(`কার্ড ডিটেক্ট সফল!`, {
-        title: `${duration}ms, ${coverage}% area`,
-        recovery: `Check window.__cardDetectTest in console for mask preview`,
+      // Run pipeline
+      const result = await detectCardInImage(testCanvas, {
+        onProgress: (stage) => {
+          logger.debug(`Pipeline stage: ${stage}`, null, 'AI_PIPELINE');
+        },
       });
 
-      logger.success('Card detection test', {
-        duration,
-        coverage: coverage + '%',
-        cardPixels,
-        totalPixels,
-      }, 'AI');
+      toast.dismiss(loadingId);
+
+      if (result.found) {
+        toast.success(`কার্ড পাওয়া গেছে!`, {
+          title: `${result.duration}ms — Confidence: ${(result.confidence * 100).toFixed(1)}%`,
+          recovery: `Coverage: ${(result.maskCoverage * 100).toFixed(1)}%`,
+        });
+
+        // Visualize result
+        const overlayCanvas = drawCornersOverlay(testCanvas, result.corners);
+        const resultArea = document.getElementById('detection-result-area');
+        if (resultArea) {
+          resultArea.innerHTML = `
+            <div class="card">
+              <h4>Detection Result</h4>
+              <p class="text-sm text-muted mt-4">
+                Corners (4): ${result.corners.map((c) => `(${c.x}, ${c.y})`).join(', ')}
+              </p>
+            </div>
+          `;
+          overlayCanvas.style.maxWidth = '100%';
+          overlayCanvas.style.marginTop = '12px';
+          overlayCanvas.style.borderRadius = '8px';
+          resultArea.querySelector('.card').appendChild(overlayCanvas);
+        }
+      } else {
+        toast.warning('কার্ড পাওয়া যায়নি', {
+          title: `Coverage: ${(result.maskCoverage * 100).toFixed(1)}%`,
+          recovery: result.reason || 'Try a different image',
+        });
+      }
+
+      window.__lastDetection = result;
     } catch (err) {
       toast.dismiss(loadingId);
-      toast.error(err.message || 'Detection failed', {
-        title: t('ai.inferenceFailed'),
-        duration: 8000,
+      toast.error(err.message, { title: 'পাইপলাইন ব্যর্থ' });
+      logger.error('Pipeline test failed', err, 'AI_PIPELINE');
+    }
+  });
+
+  // Detect on actual uploaded images via image-store
+  document.getElementById('detect-uploaded-btn')?.addEventListener('click', async () => {
+    const { getReady } = await import('./core/image-store.js');
+    const readyImages = getReady();
+
+    if (readyImages.length === 0) {
+      toast.warning('কোনো আপলোডেড ছবি নেই', {
+        recovery: 'প্রথমে আইডি কার্ড মডিউলে গিয়ে ছবি আপলোড করুন',
       });
-      logger.error('Card detect test failed', err, 'AI');
+      return;
+    }
+
+    const loadingId = toast.info(`${readyImages.length} টি ছবিতে কার্ড খুঁজছি...`, { duration: 0 });
+    const resultArea = document.getElementById('detection-result-area');
+    if (resultArea) resultArea.innerHTML = '';
+
+    let foundCount = 0;
+
+    try {
+      for (let i = 0; i < readyImages.length; i++) {
+        const entry = readyImages[i];
+        const sourceCanvas = entry.loaded.processing.canvas;
+
+        logger.info(`Detecting in image ${i + 1}/${readyImages.length}`,
+          { filename: entry.file.name }, 'AI_PIPELINE');
+
+        const result = await detectCardInImage(sourceCanvas);
+
+        if (result.found) foundCount++;
+
+        // Visualize
+        if (resultArea) {
+          const block = document.createElement('div');
+          block.className = 'card';
+          block.style.marginTop = '12px';
+
+          const title = document.createElement('div');
+          title.innerHTML = `<strong>${entry.file.name}</strong><br>
+            <span class="text-sm text-muted">
+              ${result.found ? '✅ Found' : '❌ Not found'} —
+              ${result.duration}ms,
+              Coverage: ${(result.maskCoverage * 100).toFixed(1)}%
+            </span>`;
+          block.appendChild(title);
+
+          if (result.found) {
+            const overlay = drawCornersOverlay(sourceCanvas, result.corners);
+            overlay.style.maxWidth = '100%';
+            overlay.style.marginTop = '8px';
+            overlay.style.borderRadius = '8px';
+            block.appendChild(overlay);
+          }
+
+          resultArea.appendChild(block);
+        }
+      }
+
+      toast.dismiss(loadingId);
+      toast.success(`${foundCount}/${readyImages.length} টি ছবিতে কার্ড পাওয়া গেছে`);
+    } catch (err) {
+      toast.dismiss(loadingId);
+      toast.error(err.message, { title: 'ব্যর্থ' });
+      logger.error('Uploaded detection failed', err, 'AI_PIPELINE');
     }
   });
 }

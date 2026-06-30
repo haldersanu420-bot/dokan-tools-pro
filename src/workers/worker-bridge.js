@@ -320,6 +320,136 @@ export function maskToCanvas(maskData, maskWidth, maskHeight, threshold = 0.5) {
   return canvas;
 }
 
+// Simple in-memory cache: canvas → result
+// Key by canvas dimensions + a quick pixel hash
+const detectionCache = new Map();
+const CACHE_MAX_SIZE = 20;
+
+function quickHash(canvas) {
+  const ctx = canvas.getContext('2d');
+  // Sample a few pixels for quick fingerprint
+  const w = canvas.width;
+  const h = canvas.height;
+  const samples = [
+    ctx.getImageData(0, 0, 1, 1).data,
+    ctx.getImageData(w - 1, 0, 1, 1).data,
+    ctx.getImageData(0, h - 1, 1, 1).data,
+    ctx.getImageData(w - 1, h - 1, 1, 1).data,
+    ctx.getImageData(Math.floor(w / 2), Math.floor(h / 2), 1, 1).data,
+  ];
+  let hash = `${w}x${h}`;
+  for (const s of samples) {
+    hash += `_${s[0]},${s[1]},${s[2]}`;
+  }
+  return hash;
+}
+
+// THE main pipeline function — what Phase F will use
+export async function detectCardInImage(canvas, options = {}) {
+  const { useCache = true, onProgress } = options;
+
+  // Check cache
+  if (useCache) {
+    const key = quickHash(canvas);
+    if (detectionCache.has(key)) {
+      logger.debug('Card detection cache hit', { key }, 'AI');
+      const cached = detectionCache.get(key);
+      return { ...cached, fromCache: true };
+    }
+  }
+
+  // Ensure everything ready
+  if (!initialized) {
+    onProgress?.('worker_init');
+    await initOpenCVWorker();
+  }
+
+  if (!cardDetectorReady) {
+    onProgress?.('model_load');
+    await loadCardDetector();
+  }
+
+  onProgress?.('inference');
+
+  // Run detection
+  const imageBitmap = await createImageBitmap(canvas);
+  const result = await callWorker('detectCardCorners', {
+    imageBitmap,
+    width: canvas.width,
+    height: canvas.height,
+  }, [imageBitmap]);
+
+  result.fromCache = false;
+
+  // Cache result (LRU-ish: just clear when full)
+  if (useCache && result.found) {
+    if (detectionCache.size >= CACHE_MAX_SIZE) {
+      const firstKey = detectionCache.keys().next().value;
+      detectionCache.delete(firstKey);
+    }
+    detectionCache.set(quickHash(canvas), result);
+  }
+
+  return result;
+}
+
+// Clear detection cache (call on store clear or manual reset)
+export function clearDetectionCache() {
+  detectionCache.clear();
+  logger.info('Detection cache cleared', null, 'AI');
+}
+
+// Draw detected corners overlay on a canvas (for visual debugging)
+export function drawCornersOverlay(sourceCanvas, corners, options = {}) {
+  const {
+    lineColor = '#22c55e', // green
+    lineWidth = 3,
+    cornerRadius = 8,
+    cornerColor = '#ef4444', // red
+  } = options;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = sourceCanvas.width;
+  canvas.height = sourceCanvas.height;
+  const ctx = canvas.getContext('2d');
+
+  // Draw source image
+  ctx.drawImage(sourceCanvas, 0, 0);
+
+  if (!corners || corners.length !== 4) return canvas;
+
+  // Draw polygon
+  ctx.strokeStyle = lineColor;
+  ctx.lineWidth = lineWidth;
+  ctx.beginPath();
+  ctx.moveTo(corners[0].x, corners[0].y);
+  ctx.lineTo(corners[1].x, corners[1].y);
+  ctx.lineTo(corners[2].x, corners[2].y);
+  ctx.lineTo(corners[3].x, corners[3].y);
+  ctx.closePath();
+  ctx.stroke();
+
+  // Draw corner dots
+  ctx.fillStyle = cornerColor;
+  const labels = ['TL', 'TR', 'BR', 'BL'];
+  ctx.font = 'bold 16px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath();
+    ctx.arc(corners[i].x, corners[i].y, cornerRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Label
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(labels[i], corners[i].x, corners[i].y);
+    ctx.fillStyle = cornerColor;
+  }
+
+  return canvas;
+}
+
 // Helper: paint an ImageBitmap onto a new canvas (caller uses this to display results)
 export function bitmapToCanvas(imageBitmap, width, height) {
   const canvas = document.createElement('canvas');

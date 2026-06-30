@@ -127,6 +127,11 @@ self.addEventListener('message', async (e) => {
         result = await detectCardMask(payload);
         break;
 
+      case 'detectCardCorners':
+        await loadONNXRuntime();
+        result = await detectCardCorners(payload);
+        break;
+
       default:
         throw new Error(`Unknown message type: ${type}`);
     }
@@ -618,6 +623,175 @@ async function detectCardMask({ imageBitmap, width, height }) {
     maskHeight: INPUT_SIZE,
     originalWidth: width,
     originalHeight: height,
+  };
+}
+
+// Complete pipeline: AI mask → OpenCV contour → 4 corners
+// Input: imageBitmap + dimensions
+// Output: { found, corners, confidence, maskCoverage, duration }
+async function detectCardCorners({ imageBitmap, width, height }) {
+  if (!cardDetectorSession) {
+    throw new Error('Card detector not loaded');
+  }
+  if (!cv || !isReady) {
+    throw new Error('OpenCV not ready');
+  }
+
+  const startTime = Date.now();
+
+  // Step 1: Run AI to get mask
+  // We'll inline the inference here (same logic as detectCardMask)
+  const INPUT_SIZE = 320;
+  const MEAN = [0.485, 0.456, 0.406];
+  const STD = [0.229, 0.224, 0.225];
+
+  // Resize to 320x320
+  const aiCanvas = new OffscreenCanvas(INPUT_SIZE, INPUT_SIZE);
+  const aiCtx = aiCanvas.getContext('2d');
+  aiCtx.drawImage(imageBitmap, 0, 0, INPUT_SIZE, INPUT_SIZE);
+  const aiImageData = aiCtx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE);
+  const pixels = aiImageData.data;
+
+  const tensorData = new Float32Array(1 * 3 * INPUT_SIZE * INPUT_SIZE);
+  for (let i = 0; i < INPUT_SIZE * INPUT_SIZE; i++) {
+    const r = pixels[i * 4] / 255;
+    const g = pixels[i * 4 + 1] / 255;
+    const b = pixels[i * 4 + 2] / 255;
+    tensorData[i] = (r - MEAN[0]) / STD[0];
+    tensorData[i + INPUT_SIZE * INPUT_SIZE] = (g - MEAN[1]) / STD[1];
+    tensorData[i + 2 * INPUT_SIZE * INPUT_SIZE] = (b - MEAN[2]) / STD[2];
+  }
+
+  const inputTensor = new ortRuntime.Tensor('float32', tensorData,
+    [1, 3, INPUT_SIZE, INPUT_SIZE]);
+  const inputName = cardDetectorSession.inputNames[0];
+  const outputs = await cardDetectorSession.run({ [inputName]: inputTensor });
+  const outputName = cardDetectorSession.outputNames[0];
+  const maskData = outputs[outputName].data; // Float32Array, 320*320
+
+  // Step 2: Convert mask to OpenCV Mat for processing
+  // Threshold and convert to 8-bit
+  const maskBinary = new Uint8Array(INPUT_SIZE * INPUT_SIZE);
+  let maskPixelCount = 0;
+  for (let i = 0; i < INPUT_SIZE * INPUT_SIZE; i++) {
+    if (maskData[i] > 0.5) {
+      maskBinary[i] = 255;
+      maskPixelCount++;
+    }
+  }
+
+  const maskCoverage = maskPixelCount / (INPUT_SIZE * INPUT_SIZE);
+
+  // If no mask detected, return early
+  if (maskCoverage < 0.01) {
+    return {
+      found: false,
+      corners: null,
+      confidence: 0,
+      maskCoverage,
+      duration: Date.now() - startTime,
+      reason: 'No significant mask detected',
+    };
+  }
+
+  // Create cv.Mat from mask
+  const maskMat = cv.matFromArray(INPUT_SIZE, INPUT_SIZE, cv.CV_8UC1,
+    Array.from(maskBinary));
+
+  // Step 3: Morphological operations to clean mask
+  const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
+  const cleaned = new cv.Mat();
+  cv.morphologyEx(maskMat, cleaned, cv.MORPH_CLOSE, kernel);
+  cv.morphologyEx(cleaned, cleaned, cv.MORPH_OPEN, kernel);
+
+  // Step 4: Find contours
+  const contours = new cv.MatVector();
+  const hierarchy = new cv.Mat();
+  cv.findContours(cleaned, contours, hierarchy, cv.RETR_EXTERNAL,
+    cv.CHAIN_APPROX_SIMPLE);
+
+  let bestQuad = null;
+  let bestArea = 0;
+  let bestConfidence = 0;
+
+  // Step 5: Find best quad-shaped contour
+  for (let i = 0; i < contours.size(); i++) {
+    const contour = contours.get(i);
+    const area = cv.contourArea(contour);
+
+    if (area < 100) {
+      contour.delete();
+      continue;
+    }
+
+    const perimeter = cv.arcLength(contour, true);
+
+    // Try multiple epsilon values to get a 4-point polygon
+    let approx = null;
+    for (const epsilonRatio of [0.02, 0.03, 0.04, 0.05]) {
+      const candidate = new cv.Mat();
+      cv.approxPolyDP(contour, candidate, epsilonRatio * perimeter, true);
+      if (candidate.rows === 4) {
+        approx = candidate;
+        break;
+      }
+      candidate.delete();
+    }
+
+    if (approx && area > bestArea) {
+      // Score this quad based on area and convexity
+      const isConvex = cv.isContourConvex(approx);
+      const score = area / (INPUT_SIZE * INPUT_SIZE);
+
+      if (bestQuad) bestQuad.delete();
+      bestQuad = approx;
+      bestArea = area;
+      bestConfidence = isConvex ? score : score * 0.5;
+    } else if (approx) {
+      approx.delete();
+    }
+
+    contour.delete();
+  }
+
+  let corners = null;
+
+  if (bestQuad) {
+    // Extract corners and scale back to original image dimensions
+    const scaleX = width / INPUT_SIZE;
+    const scaleY = height / INPUT_SIZE;
+
+    corners = [];
+    for (let i = 0; i < 4; i++) {
+      corners.push({
+        x: Math.round(bestQuad.data32S[i * 2] * scaleX),
+        y: Math.round(bestQuad.data32S[i * 2 + 1] * scaleY),
+      });
+    }
+
+    // Order corners (TL, TR, BR, BL)
+    corners = orderCorners(corners);
+    corners = [corners.tl, corners.tr, corners.br, corners.bl];
+
+    bestQuad.delete();
+  }
+
+  // Cleanup
+  maskMat.delete();
+  cleaned.delete();
+  kernel.delete();
+  contours.delete();
+  hierarchy.delete();
+
+  const duration = Date.now() - startTime;
+
+  return {
+    found: corners !== null,
+    corners,
+    confidence: bestConfidence,
+    maskCoverage,
+    duration,
+    rawMaskCoverage: maskCoverage,
   };
 }
 
