@@ -50,6 +50,10 @@ export default {
     arrangingLayout: 'Arranging layout...',
     generatingPDF: 'Generating PDF...',
     complete: 'Done!',
+    detecting: 'Searching for card...',
+    detected: 'Card found',
+    notDetected: 'No card found',
+    detectionFailed: 'Detection failed',
   },
   preview: {
     detectedCount: 'Cards detected',

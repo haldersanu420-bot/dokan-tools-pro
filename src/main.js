@@ -21,6 +21,18 @@ import {
 
 registerGlobalHandlers();
 
+/**
+ * Escapes a string for safe insertion into innerHTML (prevents XSS from
+ * untrusted values like user-provided filenames).
+ * @param {string} str
+ * @returns {string}
+ */
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = String(str || '');
+  return div.innerHTML;
+}
+
 /** @type {string} Current theme, restored from localStorage on load */
 let currentTheme = localStorage.getItem('dokan-tools-theme') || 'light';
 document.documentElement.setAttribute('data-theme', currentTheme);
@@ -462,14 +474,97 @@ function renderCardSheetModule() {
       <main class="app-main">
         <div class="card">
           <div id="upload-area"></div>
+          <div id="detection-list" class="detection-list" hidden></div>
         </div>
       </main>
     </div>
   `;
 
+  // Render detection list based on current store state
+  function renderDetectionList(images) {
+    const container = document.getElementById('detection-list');
+    if (!container) return;
+
+    if (images.length === 0) {
+      container.hidden = true;
+      container.innerHTML = '';
+      return;
+    }
+
+    container.hidden = false;
+
+    const items = images.map((entry) => {
+      let statusClass = 'pending';
+      let icon = '⏳';
+      let statusText = t('process.detecting');
+      let meta = '';
+
+      if (entry.status === 'failed') {
+        statusClass = 'failed';
+        icon = '⚠️';
+        statusText = entry.error?.userMessage || t('process.detectionFailed');
+      } else if (entry.status === 'ready') {
+        if (entry.detectionStatus === 'detected') {
+          statusClass = 'detected';
+          icon = '✅';
+          statusText = t('process.detected');
+          const det = entry.detectedCards[0];
+          if (det) {
+            meta = `${(det.confidence * 100).toFixed(0)}% • ${det.duration}ms`;
+          }
+        } else if (entry.detectionStatus === 'no_card') {
+          statusClass = 'no_card';
+          icon = '❌';
+          statusText = t('process.notDetected');
+        } else {
+          // Still detecting
+          statusClass = 'pending';
+          icon = '⏳';
+          statusText = t('process.detecting');
+        }
+      }
+
+      return `
+        <div class="detection-item detection-item-status-${statusClass} ${
+          statusClass === 'pending' ? 'detection-item-pending' : ''
+        }">
+          <div class="detection-item-icon">${icon}</div>
+          <div class="detection-item-info">
+            <div class="detection-item-name">${escapeHtml(entry.file.name)}</div>
+            <div class="detection-item-status">${statusText}</div>
+          </div>
+          ${meta ? `<div class="detection-item-meta">${meta}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+
+    // Summary at bottom
+    const detected = images.filter((e) => e.detectionStatus === 'detected').length;
+    const noCard = images.filter((e) => e.detectionStatus === 'no_card').length;
+    const pending = images.filter((e) => e.status === 'ready' && !e.detectionStatus).length;
+
+    let summary = '';
+    if (images.length > 0) {
+      summary = `
+        <div class="detection-summary">
+          <span>${images.length} টি ছবি</span>
+          <span class="text-muted text-sm">
+            ✅ ${detected} • ❌ ${noCard} ${pending > 0 ? `• ⏳ ${pending}` : ''}
+          </span>
+        </div>
+      `;
+    }
+
+    container.innerHTML = items + summary;
+  }
+
   const unsubscribeStore = subscribe(({ images, stats }) => {
-    logger.debug('Image store updated', stats, 'IMAGE_STORE');
+    logger.debug('Store updated', stats, 'IMAGE_STORE');
+    renderDetectionList(images);
   });
+
+  // Initial render (empty)
+  renderDetectionList([]);
 
   const zone = createUploadZone({
     container: document.getElementById('upload-area'),

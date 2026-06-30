@@ -50,6 +50,10 @@ export default {
     arrangingLayout: 'লেআউট সাজানো হচ্ছে...',
     generatingPDF: 'PDF তৈরি হচ্ছে...',
     complete: 'সম্পন্ন!',
+    detecting: 'কার্ড খোঁজা হচ্ছে...',
+    detected: 'কার্ড পাওয়া গেছে',
+    notDetected: 'কার্ড পাওয়া যায়নি',
+    detectionFailed: 'কার্ড খুঁজতে ব্যর্থ',
   },
   preview: {
     detectedCount: 'কার্ড পাওয়া গেছে',
