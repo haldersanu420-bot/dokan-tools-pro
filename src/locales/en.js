@@ -58,6 +58,7 @@ export default {
     rejected: 'Rejected',
     adjustingCorners: 'Adjust corners',
     adjustHint: 'Drag the red dots to the actual card corners',
+    selectedSummary: 'selected, ready to process',
   },
   preview: {
     detectedCount: 'Cards detected',
@@ -126,5 +127,8 @@ export default {
     cancel: 'Cancel',
     reset: 'Reset',
     zoom: 'Zoom',
+    confirmAll: 'Confirm all',
+    rejectAll: 'Reject all',
+    processSelected: 'Process selected',
   },
 };

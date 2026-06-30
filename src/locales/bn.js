@@ -58,6 +58,7 @@ export default {
     rejected: 'বাদ দেওয়া',
     adjustingCorners: 'কোনা সমন্বয় করুন',
     adjustHint: 'কোনার লাল বিন্দু টেনে কার্ডের প্রকৃত অবস্থানে আনুন',
+    selectedSummary: 'টি নির্বাচিত প্রসেসের জন্য প্রস্তুত',
   },
   preview: {
     detectedCount: 'কার্ড পাওয়া গেছে',
@@ -126,5 +127,8 @@ export default {
     cancel: 'বাতিল',
     reset: 'রিসেট',
     zoom: 'জুম',
+    confirmAll: 'সব নিশ্চিত',
+    rejectAll: 'সব বাদ',
+    processSelected: 'নির্বাচিত প্রসেস করুন',
   },
 };

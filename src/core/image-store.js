@@ -19,6 +19,7 @@
 import { info, debug } from '../utils/logger.js';
 import { handleError } from '../utils/error-handler.js';
 import { loadImage, releaseImageData } from './image-loader.js';
+import { clearDetectionCache } from '../workers/worker-bridge.js';
 
 /** @type {Map<string, object>} All tracked image entries, keyed by id */
 const images = new Map();
@@ -156,12 +157,20 @@ export function remove(id) {
   const entry = images.get(id);
   if (!entry) return false;
 
+  // Release loaded image canvases
   if (entry.loaded) {
     releaseImageData(entry.loaded);
     debug('Released image memory', { id }, 'IMAGE_STORE');
   }
 
+  // Clear detection-specific data (helps GC, drops references promptly)
+  if (entry.detectedCards && entry.detectedCards.length > 0) {
+    entry.detectedCards.length = 0;
+  }
+  entry.manualCorners = null;
+
   images.delete(id);
+  clearDetectionCache();
   notifySubscribers();
   info('Image removed from store', { id }, 'IMAGE_STORE');
 
@@ -180,9 +189,14 @@ export function clear() {
       releaseImageData(entry.loaded);
       debug('Released image memory', { id }, 'IMAGE_STORE');
     }
+    if (entry.detectedCards) {
+      entry.detectedCards.length = 0;
+    }
+    entry.manualCorners = null;
   });
 
   images.clear();
+  clearDetectionCache();
   notifySubscribers();
   info('Image store cleared', { count }, 'IMAGE_STORE');
 
