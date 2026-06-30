@@ -5,7 +5,7 @@ import * as toast from './ui/toast.js';
 import { createUploadZone } from './ui/upload.js';
 import {
   addImages, subscribe, remove, clear, getAll, getStats, getReady,
-  updateDetection,
+  updateDetection, setUserDecision, setManualCorners, getConfirmed,
 } from './core/image-store.js';
 import {
   initOpenCVWorker,
@@ -18,6 +18,7 @@ import {
   detectCardInImage,
   drawCornersOverlay,
 } from './workers/worker-bridge.js';
+import { openCornerAdjuster } from './ui/corner-adjuster.js';
 
 registerGlobalHandlers();
 
@@ -524,6 +525,10 @@ function renderCardSheetModule() {
         }
       }
 
+      const confirmActive = entry.userDecision === 'confirmed' ? 'is-active-confirm' : '';
+      const rejectActive = entry.userDecision === 'rejected' ? 'is-active-reject' : '';
+      const canEdit = entry.status === 'ready' && entry.detectionStatus === 'detected';
+
       return `
         <div class="detection-item detection-item-status-${statusClass} ${
           statusClass === 'pending' ? 'detection-item-pending' : ''
@@ -537,6 +542,23 @@ function renderCardSheetModule() {
             <div class="detection-item-status">${statusText}</div>
           </div>
           ${meta ? `<div class="detection-item-meta">${meta}</div>` : ''}
+          <div class="detection-item-actions">
+            <button class="detection-action-btn ${confirmActive}"
+                    data-action="confirm" data-id="${entry.id}"
+                    title="${t('actions.confirm')}" ${!canEdit ? 'disabled' : ''}>
+              ✓
+            </button>
+            <button class="detection-action-btn ${rejectActive}"
+                    data-action="reject" data-id="${entry.id}"
+                    title="${t('actions.reject')}">
+              ✗
+            </button>
+            <button class="detection-action-btn"
+                    data-action="edit" data-id="${entry.id}"
+                    title="${t('actions.edit')}" ${!canEdit ? 'disabled' : ''}>
+              ✎
+            </button>
+          </div>
         </div>
       `;
     }).join('');
@@ -610,6 +632,44 @@ function renderCardSheetModule() {
         // Keep the placeholder
       }
     }
+
+    // Action button handlers (event delegation)
+    container.querySelectorAll('.detection-action-btn').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const action = btn.dataset.action;
+        const id = btn.dataset.id;
+        const entry = images.find((img) => img.id === id);
+        if (!entry) return;
+
+        if (action === 'confirm') {
+          setUserDecision(id, 'confirmed');
+          toast.success(t('process.confirmed'), { duration: 1500 });
+        } else if (action === 'reject') {
+          setUserDecision(id, 'rejected');
+          toast.info(t('process.rejected'), { duration: 1500 });
+        } else if (action === 'edit') {
+          if (!entry.detectedCards[0]?.corners) {
+            toast.warning('Detected corners নেই');
+            return;
+          }
+
+          const sourceCanvas = entry.loaded.processing.canvas;
+          const currentCorners = entry.detectedCards[0].corners;
+
+          try {
+            const newCorners = await openCornerAdjuster(sourceCanvas, currentCorners);
+            if (newCorners) {
+              setManualCorners(id, newCorners);
+              toast.success('কোনা সংরক্ষিত হয়েছে');
+            }
+          } catch (err) {
+            toast.error('সমস্যা: ' + err.message);
+            logger.error('Corner adjust failed', err, 'UI');
+          }
+        }
+      });
+    });
   }
 
   const unsubscribeStore = subscribe(({ images, stats }) => {

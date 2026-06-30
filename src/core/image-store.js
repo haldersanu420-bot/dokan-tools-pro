@@ -100,6 +100,8 @@ export function addImage(file) {
     error: null,
     detectedCards: [],
     detectionStatus: null,
+    userDecision: null, // 'confirmed' | 'rejected' | null
+    manualCorners: null, // user-edited corners
     timestamp: Date.now(),
   };
 
@@ -243,4 +245,68 @@ export function getDetectionStats() {
     noCard: all.filter((e) => e.detectionStatus === 'no_card').length,
     pending: all.filter((e) => !e.detectionStatus).length,
   };
+}
+
+/**
+ * Records the user's confirm/reject decision for an entry.
+ * @param {string} id
+ * @param {'confirmed'|'rejected'|null} decision
+ * @returns {boolean} Whether an entry was found and updated
+ */
+export function setUserDecision(id, decision) {
+  const entry = images.get(id);
+  if (!entry) return false;
+
+  entry.userDecision = decision;
+  notifySubscribers();
+  info('User decision set', { id, decision }, 'IMAGE_STORE');
+  return true;
+}
+
+/**
+ * Records user-edited corners for an entry, treating it as confirmed.
+ * Updates the active detection result (or creates a synthetic one) so
+ * the manually-placed corners become the corners used downstream.
+ * @param {string} id
+ * @param {Array<{x: number, y: number}>} corners
+ * @returns {boolean} Whether an entry was found and updated
+ */
+export function setManualCorners(id, corners) {
+  const entry = images.get(id);
+  if (!entry) return false;
+
+  entry.manualCorners = corners;
+  // If user manually set corners, treat as confirmed
+  entry.userDecision = 'confirmed';
+
+  // Also update the detection result so it's the "active" one
+  if (entry.detectedCards.length > 0) {
+    entry.detectedCards[0].corners = corners;
+    entry.detectedCards[0].userAdjusted = true;
+  } else {
+    // Create a synthetic detection entry
+    entry.detectedCards = [{
+      found: true,
+      corners,
+      confidence: 1.0,
+      userAdjusted: true,
+      duration: 0,
+    }];
+    entry.detectionStatus = 'detected';
+  }
+
+  notifySubscribers();
+  info('Manual corners set', { id }, 'IMAGE_STORE');
+  return true;
+}
+
+/**
+ * Returns entries the user has confirmed and that have a detection result.
+ * @returns {object[]}
+ */
+export function getConfirmed() {
+  return getAll().filter((e) =>
+    e.userDecision === 'confirmed' &&
+    e.detectedCards.length > 0
+  );
 }

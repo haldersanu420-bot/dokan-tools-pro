@@ -54,6 +54,10 @@ export default {
     detected: 'কার্ড পাওয়া গেছে',
     notDetected: 'কার্ড পাওয়া যায়নি',
     detectionFailed: 'কার্ড খুঁজতে ব্যর্থ',
+    confirmed: 'নিশ্চিত',
+    rejected: 'বাদ দেওয়া',
+    adjustingCorners: 'কোনা সমন্বয় করুন',
+    adjustHint: 'কোনার লাল বিন্দু টেনে কার্ডের প্রকৃত অবস্থানে আনুন',
   },
   preview: {
     detectedCount: 'কার্ড পাওয়া গেছে',
@@ -113,5 +117,14 @@ export default {
     modelLoading: 'AI মডেল ডাউনলোড হচ্ছে...',
     modelReady: 'AI মডেল প্রস্তুত',
     inferenceFailed: 'AI বিশ্লেষণ ব্যর্থ হয়েছে',
+  },
+  actions: {
+    confirm: 'নিশ্চিত করুন',
+    reject: 'বাদ দিন',
+    edit: 'কোনা ঠিক করুন',
+    save: 'সংরক্ষণ',
+    cancel: 'বাতিল',
+    reset: 'রিসেট',
+    zoom: 'জুম',
   },
 };

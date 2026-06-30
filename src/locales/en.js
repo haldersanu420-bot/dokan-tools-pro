@@ -54,6 +54,10 @@ export default {
     detected: 'Card found',
     notDetected: 'No card found',
     detectionFailed: 'Detection failed',
+    confirmed: 'Confirmed',
+    rejected: 'Rejected',
+    adjustingCorners: 'Adjust corners',
+    adjustHint: 'Drag the red dots to the actual card corners',
   },
   preview: {
     detectedCount: 'Cards detected',
@@ -113,5 +117,14 @@ export default {
     modelLoading: 'Downloading AI model...',
     modelReady: 'AI model ready',
     inferenceFailed: 'AI analysis failed',
+  },
+  actions: {
+    confirm: 'Confirm',
+    reject: 'Reject',
+    edit: 'Edit corners',
+    save: 'Save',
+    cancel: 'Cancel',
+    reset: 'Reset',
+    zoom: 'Zoom',
   },
 };
