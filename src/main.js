@@ -3,7 +3,10 @@ import * as logger from './utils/logger.js';
 import { registerGlobalHandlers, createError, handleError } from './utils/error-handler.js';
 import * as toast from './ui/toast.js';
 import { createUploadZone } from './ui/upload.js';
-import { addImages, subscribe, getAll, remove, clear, getStats } from './core/image-store.js';
+import {
+  addImages, subscribe, remove, clear, getAll, getStats, getReady,
+  updateDetection,
+} from './core/image-store.js';
 import {
   initOpenCVWorker,
   workerPreprocess,
@@ -475,14 +478,74 @@ function renderCardSheetModule() {
       const ids = addImages(files);
       logger.info('Files added to store', { ids, count: ids.length }, 'UPLOAD');
 
-      const interval = setInterval(() => {
+      // Wait for all to be ready (loaded), then auto-detect
+      const checkInterval = setInterval(async () => {
         const stats = getStats();
+
+        // All loading done?
         if (stats.pending === 0 && stats.loading === 0) {
-          clearInterval(interval);
+          clearInterval(checkInterval);
+
           if (stats.failed > 0) {
             toast.warning(`${stats.ready} টি প্রস্তুত, ${stats.failed} টি ব্যর্থ`);
+          }
+
+          if (stats.ready === 0) return;
+
+          // Start detection on all ready images
+          const ready = getReady();
+          toast.info(`${ready.length} টি ছবিতে কার্ড খুঁজছি...`, { duration: 0 });
+
+          let detected = 0;
+          let noCard = 0;
+
+          for (const entry of ready) {
+            try {
+              // Skip if already detected
+              if (entry.detectionStatus) continue;
+
+              const result = await detectCardInImage(entry.loaded.processing.canvas);
+              updateDetection(entry.id, result);
+
+              if (result.found) {
+                detected++;
+                logger.success('Card detected', {
+                  file: entry.file.name,
+                  confidence: result.confidence,
+                  duration: result.duration,
+                }, 'AUTO_DETECT');
+              } else {
+                noCard++;
+                logger.warn('No card in image', {
+                  file: entry.file.name,
+                  coverage: result.maskCoverage,
+                }, 'AUTO_DETECT');
+              }
+            } catch (err) {
+              logger.error('Detection failed for image', {
+                file: entry.file.name,
+                error: err.message,
+              }, 'AUTO_DETECT');
+              updateDetection(entry.id, null);
+            }
+          }
+
+          toast.dismissAll();
+
+          if (detected === ready.length) {
+            toast.success(`${detected} টি কার্ড পাওয়া গেছে`, {
+              title: 'সব ছবিতে কার্ড সফলভাবে detect হয়েছে',
+            });
+          } else if (detected > 0) {
+            toast.warning(`${detected}/${ready.length} টি কার্ড পাওয়া গেছে`, {
+              title: 'কিছু ছবিতে কার্ড detect হয়নি',
+              recovery: `${noCard} টি ছবি manually check করুন`,
+            });
           } else {
-            toast.success(`${stats.ready} টি ছবি প্রস্তুত`);
+            toast.error('কোনো ছবিতে কার্ড পাওয়া যায়নি', {
+              title: 'Detection ব্যর্থ',
+              recovery: 'কার্ডের পরিষ্কার ছবি দিন',
+            });
           }
         }
       }, 500);

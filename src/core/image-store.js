@@ -99,6 +99,7 @@ export function addImage(file) {
     status: 'pending',
     error: null,
     detectedCards: [],
+    detectionStatus: null,
     timestamp: Date.now(),
   };
 
@@ -210,4 +211,36 @@ export function getStats() {
   });
 
   return stats;
+}
+
+/**
+ * Records a card detection result against an entry and notifies
+ * subscribers.
+ * @param {string} id
+ * @param {object|null} detectionResult - Result from detectCardInImage(), or null on failure
+ * @returns {boolean} Whether an entry was found and updated
+ */
+export function updateDetection(id, detectionResult) {
+  const entry = images.get(id);
+  if (!entry) return false;
+
+  entry.detectedCards = detectionResult ? [detectionResult] : [];
+  entry.detectionStatus = detectionResult?.found ? 'detected' : 'no_card';
+
+  notifySubscribers();
+  return true;
+}
+
+/**
+ * Computes aggregate detection counts across all entries.
+ * @returns {{ total: number, detected: number, noCard: number, pending: number }}
+ */
+export function getDetectionStats() {
+  const all = getAll();
+  return {
+    total: all.length,
+    detected: all.filter((e) => e.detectionStatus === 'detected').length,
+    noCard: all.filter((e) => e.detectionStatus === 'no_card').length,
+    pending: all.filter((e) => !e.detectionStatus).length,
+  };
 }
