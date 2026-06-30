@@ -9,6 +9,16 @@ let cv = null;
 let isReady = false;
 let loadPromise = null;
 
+// ONNX Runtime state.
+// NOTE: deliberately NOT named `ort` — ort.min.js itself declares a
+// top-level `ort` global when loaded via importScripts() into this same
+// worker scope, and a pre-existing `let ort` here would collide with it
+// ("Identifier 'ort' has already been declared") on every load attempt.
+let ortRuntime = null;
+let ortReady = false;
+let ortLoadPromise = null;
+let ortBackend = 'unknown';
+
 // Load OpenCV inside worker
 function loadOpenCV() {
   if (isReady) return Promise.resolve();
@@ -87,6 +97,20 @@ self.addEventListener('message', async (e) => {
         // Apply perspective transform given 4 corners → straight rectangle
         await loadOpenCV();
         result = processPerspectiveCorrect(payload);
+        break;
+
+      case 'initONNX':
+        await loadONNXRuntime();
+        result = {
+          ready: true,
+          backend: ortBackend,
+          version: 'onnxruntime-web',
+        };
+        break;
+
+      case 'onnxTestInference':
+        await loadONNXRuntime();
+        result = await runOnnxTestInference();
         break;
 
       default:
@@ -383,6 +407,108 @@ function orderCorners(corners) {
   const bl = withMetrics.reduce((a, b) => (a.diff > b.diff ? a : b));
 
   return { tl, tr, br, bl };
+}
+
+// Load ONNX Runtime inside worker. Self-hosted from /onnxruntime/ (same
+// origin) is tried first — this avoids third-party CDN domains, which are
+// commonly blocked by ad-blockers/antivirus on shop computers. CDN URLs
+// are kept as a last-resort fallback for environments where the local
+// build is missing the assets.
+function loadONNXRuntime() {
+  if (ortReady) return Promise.resolve();
+  if (ortLoadPromise) return ortLoadPromise;
+
+  ortLoadPromise = new Promise((resolve, reject) => {
+    try {
+      // If a prior attempt in this same worker already evaluated ort.min.js
+      // (e.g. partially, before throwing for an unrelated reason), self.ort
+      // may already exist. Reuse it instead of trying to import again —
+      // re-running importScripts on a script that top-level const/let
+      // declares globals throws "Identifier has already been declared".
+      if (self.ort) {
+        ortRuntime = self.ort;
+        ortRuntime.env.wasm.wasmPaths = ortRuntime.env.wasm.wasmPaths || `${self.location.origin}/onnxruntime/`;
+        ortBackend = 'wasm';
+        ortReady = true;
+        resolve();
+        return;
+      }
+
+      const ORT_VERSION = '1.17.1';
+      const BASES = [
+        `${self.location.origin}/onnxruntime/`, // self-hosted, same-origin
+        `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`,
+        `https://unpkg.com/onnxruntime-web@${ORT_VERSION}/dist/`,
+      ];
+
+      let loadedBase = null;
+      const attempts = [];
+
+      for (const base of BASES) {
+        const url = `${base}ort.min.js`;
+        try {
+          importScripts(url);
+          loadedBase = base;
+          break;
+        } catch (err) {
+          // If the script already partially executed in an earlier attempt,
+          // self.ort may now exist even though importScripts just threw.
+          if (self.ort) {
+            loadedBase = base;
+            break;
+          }
+          attempts.push({ url, error: err.message || String(err) });
+        }
+      }
+
+      if (!loadedBase || !self.ort) {
+        reject(new Error(
+          `ONNX Runtime failed to load from all sources: ${JSON.stringify(attempts)}`
+        ));
+        return;
+      }
+
+      ortRuntime = self.ort;
+
+      // Configure WASM paths (point to whichever source succeeded)
+      ortRuntime.env.wasm.wasmPaths = loadedBase;
+
+      // Detect available backends
+      // Try wasm first (most compatible), can later try webgpu
+      ortBackend = 'wasm';
+
+      ortReady = true;
+      resolve();
+    } catch (err) {
+      reject(err);
+    }
+  }).catch((err) => {
+    // Allow a clean retry on the next call instead of replaying this
+    // same rejected promise forever.
+    ortLoadPromise = null;
+    throw err;
+  });
+
+  return ortLoadPromise;
+}
+
+// Test ONNX with a tiny manually-created tensor (no model needed)
+async function runOnnxTestInference() {
+  if (!ortRuntime || !ortReady) throw new Error('ONNX Runtime not ready');
+
+  // Create a small tensor manually to verify ort.Tensor works
+  const data = Float32Array.from([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+  const tensor = new ortRuntime.Tensor('float32', data, [2, 3]);
+
+  return {
+    tensorCreated: true,
+    tensorType: tensor.type,
+    tensorDims: tensor.dims,
+    tensorDataLength: tensor.data.length,
+    backend: ortBackend,
+    ortAvailable: typeof ortRuntime === 'object',
+    inferenceSessionAvailable: typeof ortRuntime.InferenceSession === 'function',
+  };
 }
 
 // Signal we're ready to receive messages

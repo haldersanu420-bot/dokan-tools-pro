@@ -101,4 +101,13 @@ export default {
     workerError: 'Processing worker error',
     workerCrashed: 'Worker crashed — please reload',
   },
+  ai: {
+    loading: 'Loading AI engine...',
+    loadingHint: 'After first load, will work fast',
+    ready: 'AI engine ready',
+    failed: 'Failed to load AI engine',
+    modelLoading: 'Downloading AI model...',
+    modelReady: 'AI model ready',
+    inferenceFailed: 'AI analysis failed',
+  },
 };

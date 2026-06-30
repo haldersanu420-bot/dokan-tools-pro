@@ -208,6 +208,47 @@ export async function workerPerspectiveCorrect(canvas, corners, outputWidth, out
   return result; // { correctedBitmap, width, height }
 }
 
+// Initialize ONNX Runtime in worker
+export function initONNXRuntime() {
+  return (async () => {
+    if (!initialized) await initOpenCVWorker(); // ensure worker exists
+
+    logger.info('Initializing ONNX Runtime in worker', null, 'ONNX');
+    const startTime = Date.now();
+
+    let result;
+    try {
+      result = await callWorker('initONNX');
+    } catch (err) {
+      // A worker can be left in a broken state if an earlier attempt
+      // declared ort.min.js's top-level globals but failed before fully
+      // initializing them — every later importScripts() in that same
+      // worker then throws "Identifier 'ort' has already been declared".
+      // The only clean recovery is a fresh worker (fresh global scope).
+      if (/already been declared/i.test(err?.message || '')) {
+        logger.warn('Worker has stale ONNX globals — recreating worker and retrying', null, 'ONNX');
+        terminateWorker();
+        await initOpenCVWorker();
+        result = await callWorker('initONNX');
+      } else {
+        throw err;
+      }
+    }
+
+    const duration = Date.now() - startTime;
+    logger.success('ONNX Runtime ready', { duration, ...result }, 'ONNX');
+    return result;
+  })();
+}
+
+// Test that ONNX Runtime works (tensor creation, etc.)
+export async function testONNXInference() {
+  if (!initialized) await initOpenCVWorker();
+
+  const result = await callWorker('onnxTestInference');
+  return result;
+}
+
 // Helper: paint an ImageBitmap onto a new canvas (caller uses this to display results)
 export function bitmapToCanvas(imageBitmap, width, height) {
   const canvas = document.createElement('canvas');

@@ -101,4 +101,13 @@ export default {
     workerError: 'প্রসেসিং worker-এ সমস্যা হয়েছে',
     workerCrashed: 'Worker বন্ধ হয়ে গেছে — আবার লোড করুন',
   },
+  ai: {
+    loading: 'AI ইঞ্জিন লোড হচ্ছে...',
+    loadingHint: 'একবার লোড হলে দ্রুত কাজ করবে',
+    ready: 'AI ইঞ্জিন প্রস্তুত',
+    failed: 'AI ইঞ্জিন লোড করা যায়নি',
+    modelLoading: 'AI মডেল ডাউনলোড হচ্ছে...',
+    modelReady: 'AI মডেল প্রস্তুত',
+    inferenceFailed: 'AI বিশ্লেষণ ব্যর্থ হয়েছে',
+  },
 };

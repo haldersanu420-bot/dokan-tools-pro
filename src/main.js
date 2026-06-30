@@ -9,6 +9,8 @@ import {
   workerPreprocess,
   workerFindContours,
   workerPerspectiveCorrect,
+  initONNXRuntime,
+  testONNXInference,
 } from './workers/worker-bridge.js';
 
 registerGlobalHandlers();
@@ -83,6 +85,7 @@ function renderHome() {
             <button class="btn btn-secondary text-sm" id="opencv-test-btn">OpenCV টেস্ট</button>
             <button class="btn btn-secondary text-sm" id="ui-freeze-test-btn">UI Freeze টেস্ট</button>
             <button class="btn btn-secondary text-sm" id="cv-pipeline-test-btn">CV Pipeline টেস্ট</button>
+            <button class="btn btn-secondary text-sm" id="onnx-test-btn">AI ইঞ্জিন টেস্ট</button>
           </div>
         </div>
       </main>
@@ -214,6 +217,48 @@ function renderHome() {
         recovery: err.message,
       });
       logger.error('CV pipeline test failed', err, 'CV_TEST');
+    }
+  });
+
+  document.getElementById('onnx-test-btn')?.addEventListener('click', async () => {
+    const loadingId = toast.info(t('ai.loading'), {
+      title: t('ai.loadingHint'),
+      duration: 0,
+    });
+
+    try {
+      // Init ONNX in worker
+      const t1 = Date.now();
+      const initResult = await initONNXRuntime();
+      const initDuration = Date.now() - t1;
+
+      // Test inference (tensor creation)
+      const t2 = Date.now();
+      const testResult = await testONNXInference();
+      const inferenceDuration = Date.now() - t2;
+
+      toast.dismiss(loadingId);
+      toast.success(t('ai.ready'), {
+        title: `Init: ${initDuration}ms, Test: ${inferenceDuration}ms`,
+        recovery: `Backend: ${testResult.backend}, Tensor dims: [${testResult.tensorDims.join('x')}]`,
+      });
+
+      logger.success('ONNX Runtime initialized + tested', {
+        initDuration,
+        inferenceDuration,
+        ...testResult,
+      }, 'ONNX');
+
+      // Store for inspection
+      window.__onnxTest = testResult;
+    } catch (err) {
+      toast.dismiss(loadingId);
+      const formatted = handleError(err);
+      toast.error(formatted.userMessage, {
+        title: t('ai.failed'),
+        recovery: err.message,
+      });
+      logger.error('ONNX test failed', err, 'ONNX');
     }
   });
 }
