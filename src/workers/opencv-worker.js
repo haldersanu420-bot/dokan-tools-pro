@@ -674,7 +674,7 @@ async function detectCardCorners({ imageBitmap, width, height }) {
   const maskBinary = new Uint8Array(INPUT_SIZE * INPUT_SIZE);
   let maskPixelCount = 0;
   for (let i = 0; i < INPUT_SIZE * INPUT_SIZE; i++) {
-    if (maskData[i] > 0.5) {
+    if (maskData[i] > 0.4) {
       maskBinary[i] = 255;
       maskPixelCount++;
     }
@@ -699,7 +699,7 @@ async function detectCardCorners({ imageBitmap, width, height }) {
     Array.from(maskBinary));
 
   // Step 3: Morphological operations to clean mask
-  const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
+  const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(7, 7));
   const cleaned = new cv.Mat();
   cv.morphologyEx(maskMat, cleaned, cv.MORPH_CLOSE, kernel);
   cv.morphologyEx(cleaned, cleaned, cv.MORPH_OPEN, kernel);
@@ -738,17 +738,56 @@ async function detectCardCorners({ imageBitmap, width, height }) {
       candidate.delete();
     }
 
-    if (approx && area > bestArea) {
-      // Score this quad based on area and convexity
-      const isConvex = cv.isContourConvex(approx);
-      const score = area / (INPUT_SIZE * INPUT_SIZE);
+    if (approx) {
+      // Calculate quad's aspect ratio
+      const corners4 = [];
+      for (let j = 0; j < 4; j++) {
+        corners4.push({
+          x: approx.data32S[j * 2],
+          y: approx.data32S[j * 2 + 1],
+        });
+      }
 
-      if (bestQuad) bestQuad.delete();
-      bestQuad = approx;
-      bestArea = area;
-      bestConfidence = isConvex ? score : score * 0.5;
-    } else if (approx) {
-      approx.delete();
+      // Find min/max for bounding box
+      const xs = corners4.map((c) => c.x);
+      const ys = corners4.map((c) => c.y);
+      const quadW = Math.max(...xs) - Math.min(...xs);
+      const quadH = Math.max(...ys) - Math.min(...ys);
+      const aspectRatio = Math.max(quadW, quadH) / Math.min(quadW, quadH);
+
+      // Score components:
+      // 1. Mask fill: how much of the mask is inside this quad (use area ratio to mask coverage)
+      const maskFillScore = Math.min(1, area / (maskPixelCount + 1));
+
+      // 2. Aspect ratio: ID cards are roughly 1.4-1.8, score higher for closer match
+      const idealRatio = 1.586; // Aadhaar/PAN/Voter standard
+      const ratioDiff = Math.abs(aspectRatio - idealRatio);
+      const aspectScore = Math.max(0, 1 - ratioDiff / 2);
+
+      // 3. Convexity: required for proper card shape
+      const isConvex = cv.isContourConvex(approx);
+      const convexScore = isConvex ? 1 : 0.3;
+
+      // 4. Size: prefer reasonable-sized detections (not too small, not full image)
+      const sizeRatio = area / (INPUT_SIZE * INPUT_SIZE);
+      const sizeScore = sizeRatio > 0.05 && sizeRatio < 0.95 ? 1 : 0.5;
+
+      // Combined confidence (weighted average)
+      const confidence = (
+        maskFillScore * 0.35 +
+        aspectScore * 0.25 +
+        convexScore * 0.20 +
+        sizeScore * 0.20
+      );
+
+      if (area > bestArea || confidence > bestConfidence) {
+        if (bestQuad) bestQuad.delete();
+        bestQuad = approx;
+        bestArea = area;
+        bestConfidence = confidence;
+      } else {
+        approx.delete();
+      }
     }
 
     contour.delete();
