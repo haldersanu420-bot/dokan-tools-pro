@@ -527,8 +527,11 @@ function renderCardSheetModule() {
       return `
         <div class="detection-item detection-item-status-${statusClass} ${
           statusClass === 'pending' ? 'detection-item-pending' : ''
-        }">
+        }" data-entry-id="${entry.id}">
           <div class="detection-item-icon">${icon}</div>
+          <div class="detection-item-thumb" data-thumb-for="${entry.id}">
+            <span class="detection-item-thumb-placeholder">🖼️</span>
+          </div>
           <div class="detection-item-info">
             <div class="detection-item-name">${escapeHtml(entry.file.name)}</div>
             <div class="detection-item-status">${statusText}</div>
@@ -556,6 +559,57 @@ function renderCardSheetModule() {
     }
 
     container.innerHTML = items + summary;
+
+    // Populate thumbnails (async, non-blocking)
+    for (const entry of images) {
+      if (entry.status !== 'ready' || entry.detectionStatus !== 'detected') continue;
+      const det = entry.detectedCards[0];
+      if (!det || !det.corners) continue;
+
+      const thumbSlot = container.querySelector(`[data-thumb-for="${entry.id}"]`);
+      if (!thumbSlot) continue;
+
+      try {
+        // Use the processing canvas (already exists, smaller size)
+        const sourceCanvas = entry.loaded.processing.canvas;
+
+        // Scale corners to a small preview canvas (160x120 for 2x retina)
+        const previewWidth = 160;
+        const previewHeight = 120;
+        const scaleX = previewWidth / sourceCanvas.width;
+        const scaleY = previewHeight / sourceCanvas.height;
+
+        const scaledCorners = det.corners.map((c) => ({
+          x: c.x * scaleX,
+          y: c.y * scaleY,
+        }));
+
+        // Draw the source image scaled down
+        const smallCanvas = document.createElement('canvas');
+        smallCanvas.width = previewWidth;
+        smallCanvas.height = previewHeight;
+        const sctx = smallCanvas.getContext('2d');
+        sctx.drawImage(sourceCanvas, 0, 0, previewWidth, previewHeight);
+
+        // Draw overlay
+        const overlay = drawCornersOverlay(smallCanvas, scaledCorners, {
+          lineColor: '#22c55e',
+          lineWidth: 2,
+          cornerRadius: 4,
+          cornerColor: '#ef4444',
+        });
+
+        // Clear placeholder and insert canvas
+        thumbSlot.innerHTML = '';
+        thumbSlot.appendChild(overlay);
+      } catch (err) {
+        logger.warn('Failed to render thumbnail', {
+          id: entry.id,
+          error: err.message,
+        }, 'UI');
+        // Keep the placeholder
+      }
+    }
   }
 
   const unsubscribeStore = subscribe(({ images, stats }) => {
